@@ -1,33 +1,24 @@
 "use client";
-// Page logic: Google login (popup + PKCE, secret kept by /api/oauth), talking to the transfer worker, rendering.
+// Page logic: Google sign-in (redirect + PKCE, see lib/auth), talking to the transfer worker, rendering.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Drive, oauth, type Token } from "@/lib/drive";
+import { ROLE, same, session, startLogin, type Label, type Saved } from "@/lib/auth";
+import { oauth } from "@/lib/drive";
 import type { FromWorker, JobState, JobStatus, LogLine, RootRow, ToWorker } from "@/lib/types";
 
-type Label = "A" | "B";
-type Saved = { email: string; token: Token };
 type Banner = { title: string; text: string; retry: boolean };
 
 const IDLE: JobState = { status: "idle", steps: [], console: [], live: "", progress: null, scanned: null,
                          root: null, rootName: null, authExpired: false, items: [] };
 const STAMP: Record<JobStatus, string> = { idle: "Idle", running: "In transit", done: "Delivered",
   errors: "Partly delivered", failed: "Failed", stopped: "Stopped" };
-const ROLE: Record<Label, string> = { A: "current owner", B: "new owner" };
 const DEFAULT_STEPS = ["scan", "transfer", "verify"].map(name => ({ name, status: "pending" as const }));
 
 const fmt = (n: number | null | undefined) => n == null ? "—" : Number(n).toLocaleString("en-US");
-const same = (a?: string, b?: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
-// Emails: localStorage (convenience). OAuth tokens: this tab's sessionStorage only (gone when the tab closes).
+// Emails: localStorage (convenience). OAuth tokens: sessionStorage via lib/auth (this tab only).
 const local = {
   get: (k: string) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch {} },
-};
-const session = {
-  get: (l: Label): Saved | null => { try { return JSON.parse(sessionStorage.getItem("tok_" + l) || "null"); } catch { return null; } },
-  set: (l: Label, v: Saved | null) => {
-    try { v ? sessionStorage.setItem("tok_" + l, JSON.stringify(v)) : sessionStorage.removeItem("tok_" + l); } catch {}
-  },
 };
 
 function parseRoot(raw: string) {
@@ -35,56 +26,6 @@ function parseRoot(raw: string) {
   // folder: .../folders/<id>   file: .../file/d/<id>/view, docs.google.com/document/d/<id>/edit   old: ?id=<id>
   const m = raw.match(/(?:folders|\/d)\/([\w-]+)/) || raw.match(/[?&]id=([\w-]+)/);
   return m ? m[1] : raw;
-}
-
-// ---------------------------------------------------------------- login (popup + PKCE)
-const b64url = (buf: ArrayBuffer | Uint8Array) =>
-  btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-let configP: Promise<{ clientId: string }> | undefined;
-
-function waitForCode(state: string, popup: Window) {
-  // /callback reports through a BroadcastChannel (Google's pages cut window.opener)
-  return new Promise<string>((resolve, reject) => {
-    const ch = new BroadcastChannel("oauth");
-    let closedSince = 0;
-    const finish = () => { clearTimeout(timer); clearInterval(watch); ch.close(); };
-    const timer = setTimeout(() => { finish(); reject(new Error("Login timed out")); }, 300_000);
-    const watch = setInterval(() => {  // popup closed without answering (closed can flicker -> grace period)
-      if (!popup.closed) return;
-      if (!closedSince) closedSince = Date.now();
-      else if (Date.now() - closedSince > 3000) { finish(); reject(new Error("Login window was closed")); }
-    }, 1000);
-    ch.onmessage = ({ data }) => {
-      if (data?.state !== state) return;
-      finish();
-      data.code ? resolve(data.code) : reject(new Error(`Login failed: ${data.error || "no code"}`));
-    };
-  });
-}
-
-async function googleLogin(popup: Window, email: string): Promise<Saved> {
-  configP ??= oauth<{ clientId: string }>("config");
-  configP.catch(() => { configP = undefined; });
-  const { clientId } = await configP;
-  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
-  const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
-  const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
-  const redirectUri = location.origin + "/callback";
-  popup.location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
-    client_id: clientId, redirect_uri: redirectUri, response_type: "code",
-    scope: "https://www.googleapis.com/auth/drive", access_type: "offline", prompt: "select_account consent",
-    code_challenge: challenge, code_challenge_method: "S256", state, login_hint: email,
-  });
-  const code = await waitForCode(state, popup);
-  const t = await oauth<{ access_token: string; refresh_token: string; expires_in: number }>(
-    "exchange", { code, code_verifier: verifier, redirect_uri: redirectUri });
-  const token: Token = { access_token: t.access_token, refresh_token: t.refresh_token, expiry_date: Date.now() + t.expires_in * 1000 };
-  const got = await new Drive(token).email();
-  if (!same(got, email)) {
-    await oauth("revoke", { token: token.refresh_token }).catch(() => {});
-    throw new Error(`You logged in as ${got}, expected ${email}`);
-  }
-  return { email: got, token };
 }
 
 // ---------------------------------------------------------------- component
@@ -112,6 +53,10 @@ export default function MoveOut() {
   useEffect(() => {
     setEmails({ A: local.get("emailA"), B: local.get("emailB") });
     setToks({ A: session.get("A") ?? undefined, B: session.get("B") ?? undefined });
+    setRoot(local.get("rootDraft"));  // kept across the sign-in round trip only
+    local.set("rootDraft", "");
+    const flash = session.flash();  // result of a sign-in round trip
+    if (flash) setMsg(flash);
 
     const w = new Worker(new URL("../lib/transfer.worker.ts", import.meta.url), { type: "module" });
     w.onmessage = ({ data }: MessageEvent<FromWorker>) => {
@@ -157,22 +102,13 @@ export default function MoveOut() {
   async function login(l: Label) {
     const email = emails[l].trim();
     if (!email) return say(`Enter the ${ROLE[l]}'s email first.`);
-    // open the popup right away (inside the click) so it is not blocked
-    const popup = window.open("about:blank", "gauth" + l, "width=520,height=680");
-    if (!popup) return say("The browser blocked the login popup — allow popups for this site.");
+    local.set("email" + l, email);
+    local.set("rootDraft", root);  // the page reloads after Google
     setLoggingIn(l);
-    say(`Sign in as ${email} (${ROLE[l]}) in the Google popup…`, true);
     try {
-      const saved = await googleLogin(popup, email);
-      const old = toks[l];
-      if (old?.token.refresh_token) oauth("revoke", { token: old.token.refresh_token }).catch(() => {});
-      saveTok(l, saved);
-      local.set("email" + l, email);
-      say(`Signed in as ${email} (${ROLE[l]}).`, true);
+      await startLogin(l, email);  // navigates away
     } catch (e) {
       say(`${ROLE[l][0].toUpperCase() + ROLE[l].slice(1)}: ${(e as Error).message}`);
-    } finally {
-      try { popup.close(); } catch {}
       setLoggingIn(null);
     }
   }
@@ -230,7 +166,7 @@ export default function MoveOut() {
                       : "Not signed in"}
                   </span>
                   <button className="ghost pick" type="button" disabled={running || loggingIn !== null} onClick={() => login(l)}>
-                    {loggingIn === l ? "Waiting for Google…" : toks[l] ? "Use another account" : "Sign in with Google"}
+                    {loggingIn === l ? "Opening Google…" : toks[l] ? "Use another account" : "Sign in with Google"}
                   </button>
                 </div>
               </div>
