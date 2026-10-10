@@ -12,6 +12,7 @@ const IDLE: JobState = { status: "idle", steps: [], console: [], live: "", progr
                          root: null, rootName: null, authExpired: false, items: [] };
 const STAMP: Record<JobStatus, string> = { idle: "Idle", running: "In transit", done: "Delivered",
   errors: "Partly delivered", failed: "Failed", stopped: "Stopped" };
+const ROLE: Record<Label, string> = { A: "current owner", B: "new owner" };
 const DEFAULT_STEPS = ["scan", "transfer", "verify"].map(name => ({ name, status: "pending" as const }));
 
 const fmt = (n: number | null | undefined) => n == null ? "—" : Number(n).toLocaleString("en-US");
@@ -128,7 +129,7 @@ export default function MoveOut() {
         if (b) setBanner(b);
         if (s.authExpired) {
           saveTok("A", null); saveTok("B", null);
-          say("Login expired or wrong account — log in A and B again, then Ship it (progress is kept).");
+          say("Login expired or wrong account — sign in both accounts again, then Ship it (progress is kept).");
         }
         w.postMessage({ cmd: "roots" } satisfies ToWorker);
       }
@@ -155,21 +156,21 @@ export default function MoveOut() {
 
   async function login(l: Label) {
     const email = emails[l].trim();
-    if (!email) return say(`Enter email ${l} first.`);
+    if (!email) return say(`Enter the ${ROLE[l]}'s email first.`);
     // open the popup right away (inside the click) so it is not blocked
     const popup = window.open("about:blank", "gauth" + l, "width=520,height=680");
     if (!popup) return say("The browser blocked the login popup — allow popups for this site.");
     setLoggingIn(l);
-    say(`Log in to account ${l} (${email}) in the popup…`, true);
+    say(`Sign in as ${email} (${ROLE[l]}) in the Google popup…`, true);
     try {
       const saved = await googleLogin(popup, email);
       const old = toks[l];
       if (old?.token.refresh_token) oauth("revoke", { token: old.token.refresh_token }).catch(() => {});
       saveTok(l, saved);
       local.set("email" + l, email);
-      say(`Account ${l} logged in.`, true);
+      say(`Signed in as ${email} (${ROLE[l]}).`, true);
     } catch (e) {
-      say(`Account ${l}: ${(e as Error).message}`);
+      say(`${ROLE[l][0].toUpperCase() + ROLE[l].slice(1)}: ${(e as Error).message}`);
     } finally {
       try { popup.close(); } catch {}
       setLoggingIn(null);
@@ -181,15 +182,15 @@ export default function MoveOut() {
     const res = await Promise.all(list.map(t =>
       oauth("revoke", { token: t.token.refresh_token }).then(() => "revoked", () => "revoke failed")));
     saveTok("A", null); saveTok("B", null);
-    say("Logged out · tokens " + (res.join(", ") || "cleared"), true);
+    say("Signed out · access " + (res.join(", ") || "cleared"), true);
   }
 
   function start(mode?: "retry") {
     say("");
     const emailA = emails.A.trim(), emailB = emails.B.trim(), id = parseRoot(root);
     if (!emailA || !emailB || !id) return say("Fill in all three fields.");
-    if (!toks.A || !same(toks.A.email, emailA)) return say("Log in account A first (button under email A).");
-    if (!toks.B || !same(toks.B.email, emailB)) return say("Log in account B first (button under email B).");
+    if (!toks.A || !same(toks.A.email, emailA)) return say("Sign in the current owner first (button under their email).");
+    if (!toks.B || !same(toks.B.email, emailB)) return say("Sign in the new owner first (button under their email).");
     local.set("emailA", emailA); local.set("emailB", emailB);
     setBanner(null);
     send({ cmd: "start", mode, root: id, emailA, emailB, tokens: { A: toks.A.token, B: toks.B.token } });
@@ -226,10 +227,10 @@ export default function MoveOut() {
                     {toks[l]
                       ? <><span className={same(toks[l]!.email, emails[l]) ? "on" : ""}>{toks[l]!.email}</span>
                           {!same(toks[l]!.email, emails[l]) && " · differs from email"}</>
-                      : "Not logged in"}
+                      : "Not signed in"}
                   </span>
                   <button className="ghost pick" type="button" disabled={running || loggingIn !== null} onClick={() => login(l)}>
-                    {loggingIn === l ? "Waiting…" : toks[l] ? "Switch" : `Log in ${l}`}
+                    {loggingIn === l ? "Waiting for Google…" : toks[l] ? "Use another account" : "Sign in with Google"}
                   </button>
                 </div>
               </div>
@@ -248,9 +249,9 @@ export default function MoveOut() {
           </div>
           <div className="tokens">
             <span>{loggedIn.length
-              ? <>Logged in: <span className="on">{loggedIn.join(" + ")}</span> · this tab only</>
-              : "Not logged in · nothing saved"}</span>
-            <button className="ghost pick" type="button" disabled={running || !loggedIn.length} onClick={logout}>Log out</button>
+              ? <>Signed in: <span className="on">{loggedIn.map(l => ROLE[l]).join(" + ")}</span> · this tab only</>
+              : "Not signed in · nothing saved"}</span>
+            <button className="ghost pick" type="button" disabled={running || !loggedIn.length} onClick={logout}>Sign out</button>
           </div>
         </form>
 
