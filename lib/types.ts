@@ -3,7 +3,8 @@ import type { Token } from "./drive";
 export type StepStatus = "pending" | "running" | "ok" | "warn" | "fail" | "stopped";
 export type JobStatus = "idle" | "running" | "done" | "errors" | "failed" | "stopped";
 
-export type Progress = { pct: number; n: number; total: number; done: number; err: number; rate: number; eta: string };
+export type Progress = { pct: number; n: number; total: number; done: number; err: number; rate: number; eta: string;
+                         lanes?: number; maxLanes?: number; throttled?: number };
 
 export type LogLine = { t: string; status: string; id: string; name: string; err: string | null };
 
@@ -20,9 +21,13 @@ export type JobState = {
   items: LogLine[];
 };
 
+/** Parallel transfers the user can pick (the worker adapts below this when Google rate-limits). */
+export const LANE_CHOICES = [4, 8, 12];
+
 export type RootRow = { id: string; name: string; done: number; skip: number; todo: number; err: number };
 
-export type StartMsg = { cmd: "start"; mode?: "retry"; root: string; emailA: string; emailB: string; tokens: { A: Token; B: Token } };
+export type StartMsg = { cmd: "start"; mode?: "retry"; root: string; emailA: string; emailB: string; lanes?: number;
+                         tokens: { A: Token; B: Token } };
 export type ToWorker = StartMsg | { cmd: "stop" } | { cmd: "roots" } | { cmd: "state" }
-  | { cmd: "forget"; root: string } | { cmd: "clearAll" };
+  | { cmd: "forget"; root: string } | { cmd: "clearAll" } | { cmd: "speed"; lanes: number };
 export type FromWorker = { type: "state"; state: JobState } | { type: "roots"; roots: RootRow[] } | { type: "error"; error: string };

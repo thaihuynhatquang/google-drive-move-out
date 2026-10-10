@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { ROLE, same, session, startLogin, type Label, type Saved } from "@/lib/auth";
 import { oauth } from "@/lib/drive";
-import type { FromWorker, JobState, JobStatus, LogLine, RootRow, ToWorker } from "@/lib/types";
+import { LANE_CHOICES, type FromWorker, type JobState, type JobStatus, type LogLine, type RootRow, type ToWorker } from "@/lib/types";
 
 type Banner = { title: string; text: string; retry: boolean };
 
@@ -23,7 +23,7 @@ const local = {
 };
 
 // The running job, so a reload can resume it (this tab only; no secrets)
-type Active = { root: string; emailA: string; emailB: string };
+type Active = { root: string; emailA: string; emailB: string; lanes?: number };
 const activeJob = {
   get: (): Active | null => { try { return JSON.parse(sessionStorage.getItem("activeJob") || "null"); } catch { return null; } },
   set: (v: Active | null) => {
@@ -42,6 +42,7 @@ function parseRoot(raw: string) {
 export default function MoveOut() {
   const [emails, setEmails] = useState<Record<Label, string>>({ A: "", B: "" });
   const [root, setRoot] = useState("");
+  const [lanes, setLanes] = useState(4);
   const [msg, setMsg] = useState<{ text: string; ok?: boolean; n?: number }>({ text: "" });
   const [invalid, setInvalid] = useState<Record<string, string>>({});  // input id -> inline error
   const [toks, setToks] = useState<Partial<Record<Label, Saved>>>({});
@@ -73,6 +74,8 @@ export default function MoveOut() {
   useEffect(() => {
     setEmails({ A: local.get("emailA"), B: local.get("emailB") });
     setToks({ A: session.get("A") ?? undefined, B: session.get("B") ?? undefined });
+    const savedLanes = Number(local.get("lanes"));
+    if (LANE_CHOICES.includes(savedLanes)) setLanes(savedLanes);
     setRoot(local.get("rootDraft"));  // kept across the sign-in round trip only
     local.set("rootDraft", "");
     const flash = session.flash();  // result of a sign-in round trip
@@ -212,8 +215,8 @@ export default function MoveOut() {
     if (!toks.A || !toks.B) return;  // checked above
     local.set("emailA", emailA); local.set("emailB", emailB);
     setBanner(null);
-    activeJob.set({ root: id, emailA, emailB });
-    send({ cmd: "start", mode, root: id, emailA, emailB, tokens: { A: toks.A.token, B: toks.B.token } });
+    activeJob.set({ root: id, emailA, emailB, lanes });
+    send({ cmd: "start", mode, root: id, emailA, emailB, lanes, tokens: { A: toks.A.token, B: toks.B.token } });
   }
 
   const p = job.progress;
@@ -269,6 +272,18 @@ export default function MoveOut() {
                    value={root} onChange={e => { setRoot(e.target.value); fieldOk("root"); }} />
             {invalid.root && <div className="field-err" role="alert">{invalid.root}</div>}
           </div>
+          <div className="field">
+            <label>Speed · parallel transfers <b>{lanes}</b></label>
+            <div className="seg" role="radiogroup" aria-label="Parallel transfers">
+              {LANE_CHOICES.map((n, k) => (
+                <button key={n} type="button" role="radio" aria-checked={lanes === n} className={lanes === n ? "on" : ""}
+                        onClick={() => { setLanes(n); local.set("lanes", String(n)); if (running) send({ cmd: "speed", lanes: n }); }}>
+                  {["Gentle", "Fast", "Max"][k]} <span>{n}</span>
+                </button>
+              ))}
+            </div>
+            <div className="hint">Higher is faster until Google starts rate-limiting; it then slows down by itself.</div>
+          </div>
           <div className="barcode" aria-hidden="true" />
           {msg.text && <div key={msg.n} className={"msg " + (msg.ok ? "ok" : "bad")} role={msg.ok ? "status" : "alert"}>{msg.text}</div>}
           <div className="actions">
@@ -310,6 +325,12 @@ export default function MoveOut() {
             <div className="stat"><span>Speed / min</span><b>{fmt(p?.rate)}</b></div>
             <div className="stat"><span>ETA</span><b>{p?.eta ?? "—"}</b></div>
           </div>
+          {p?.maxLanes != null && (
+            <div className={"lanes" + (p.throttled ? " hot" : "")}>
+              Running {p.lanes}/{p.maxLanes} at once
+              {p.throttled ? ` · Google rate-limited ${p.throttled}× — slowed down to stay within its limits` : " · no rate limits so far"}
+            </div>
+          )}
 
           {banner && (
             <div className="banner show">

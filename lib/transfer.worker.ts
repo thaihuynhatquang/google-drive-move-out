@@ -5,12 +5,24 @@
 //   1) A creates a permission for B: role=writer, pendingOwner=true   (sends no email)
 //   2) B accepts: permissions.update role=owner, transferOwnership=true
 //   -> Files are NOT copied; only the owner changes. Every file and folder is transferred on its own.
-import { AuthError, Drive, DriveError } from "./drive";
-import type { FromWorker, JobState, LogLine, RootRow, StartMsg, ToWorker } from "./types";
+import { AuthError, Drive, DriveError, sleep } from "./drive";
+import { LANE_CHOICES, type FromWorker, type JobState, type LogLine, type RootRow, type StartMsg, type ToWorker } from "./types";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const SHORTCUT_MIME = "application/vnd.google-apps.shortcut"; // owner follows the parent folder, cannot be transferred
-const WORKERS = 4;
+const VERIFY_LANES = 4;
+
+// Adaptive concurrency: up to `maxLanes` requests in flight; halve on a Google rate limit, creep back up when calm.
+let maxLanes = 4, limit = 4, active = 0, throttles = 0, lastThrottle = 0;
+function onThrottle() {
+  throttles++;
+  const now = Date.now();
+  if (now - lastThrottle > 5000) limit = Math.max(1, Math.floor(limit / 2));  // one halving per burst
+  lastThrottle = now;
+}
+function rampUp() {
+  if (limit < maxLanes && Date.now() - lastThrottle > 30_000) limit++;
+}
 const SAMPLE = 200;
 const TAIL = 250;
 
@@ -186,12 +198,15 @@ async function findPermId(A: Drive, fileId: string, email: string) {
 
 async function transferOne(A: Drive, B: Drive, fileId: string, permId: string | null | undefined, emailB: string):
     Promise<{ status: Status; permId: string | null; err: string | null }> {
+  let offered = false;
   try {
     if (!permId) {
       try {
-        permId = (await A.req("POST", `/files/${fileId}/permissions`, {
-          query: { sendNotificationEmail: "false", fields: "id" },
-          body: { type: "user", role: "writer", emailAddress: emailB, pendingOwner: true } })).id;
+        const p = await A.req("POST", `/files/${fileId}/permissions`, {
+          query: { sendNotificationEmail: "false", fields: "id,pendingOwner" },
+          body: { type: "user", role: "writer", emailAddress: emailB, pendingOwner: true } });
+        permId = p.id;
+        offered = p.pendingOwner === true;
       } catch (e) {
         // B may already have access (e.g. inherited from a parent folder) -> update instead
         if (!(e instanceof DriveError)) throw e;
@@ -199,8 +214,8 @@ async function transferOne(A: Drive, B: Drive, fileId: string, permId: string | 
         if (!permId) throw e;
       }
     }
-    // If B already had access, create() ignores pendingOwner -> always set it explicitly before B accepts.
-    await A.req("PATCH", `/files/${fileId}/permissions/${permId}`, { body: { role: "writer", pendingOwner: true } });
+    // If B already had access, create() returns that permission without pendingOwner -> set it explicitly.
+    if (!offered) await A.req("PATCH", `/files/${fileId}/permissions/${permId}`, { body: { role: "writer", pendingOwner: true } });
     await B.req("PATCH", `/files/${fileId}/permissions/${permId}`, { query: { transferOwnership: "true" }, body: { role: "owner" } });
     return { status: "done", permId: permId!, err: null };
   } catch (e) {
@@ -232,18 +247,29 @@ async function transfer(A: Drive, B: Drive, root: string, emailB: string) {
   print(`To transfer: ${fmt(rows.length)} items (${fmt(before)} already done)`);
   const t0 = Date.now();
   let i = 0, n = 0, nDone = 0, nErr = 0;
+  // speed over the last minute (not since start), so lane changes show up quickly
+  const recent: number[] = [];
   const progress = () => {
-    const rate = n / Math.max((Date.now() - t0) / 1000, 1e-9);
+    const now = Date.now();
+    while (recent.length && now - recent[0] > 60_000) recent.shift();
+    const window = Math.min(60, Math.max((now - t0) / 1000, 1));
+    const rate = recent.length / window;  // files per second
     const p = { pct: total ? (100 * (before + n)) / total : 100, n: before + n, total, done: before + nDone, err: nErr,
-                rate: Math.round(rate * 60), eta: hms(rate > 0 ? (rows.length - n) / rate : 0) };
+                rate: Math.round(rate * 60), eta: hms(rate > 0 ? (rows.length - n) / rate : 0),
+                lanes: limit, maxLanes, throttled: throttles };
     job.progress = p;
-    live(`[${p.pct.toFixed(1).padStart(5)}%] ${fmt(p.n)}/${fmt(total)}  done=${fmt(p.done)}  err=${fmt(nErr)}  ${fmt(p.rate)}/min  ETA ${p.eta}`);
+    live(`[${p.pct.toFixed(1).padStart(5)}%] ${fmt(p.n)}/${fmt(total)}  done=${fmt(p.done)}  err=${fmt(nErr)}  ${fmt(p.rate)}/min  ` +
+         `ETA ${p.eta}  lanes ${limit}/${maxLanes}  rate-limited ${throttles}×`);
   };
   progress();
-  await Promise.all(Array.from({ length: Math.min(WORKERS, rows.length) }, async () => {
+  const ramp = setInterval(() => { rampUp(); progress(); }, 15_000);
+  await Promise.all(Array.from({ length: Math.min(LANE_CHOICES[LANE_CHOICES.length - 1], rows.length) }, async (_, lane) => {
     while (i < rows.length && !stopping) {
+      if (lane >= limit || active >= limit) { await sleep(250); continue; }  // this lane is parked for now
       const it = rows[i++];
-      const r = await transferOne(A, B, it.id, it.perm_id, emailB);
+      active++;
+      const r = await transferOne(A, B, it.id, it.perm_id, emailB).finally(() => { active--; });
+      recent.push(Date.now());
       Object.assign(it, { status: r.status, perm_id: r.permId, err: r.err });
       const l: StoredLog = { root, t: new Date().toTimeString().slice(0, 8), status: r.status, id: it.id, name: it.name, err: r.err };
       await tx(["items", "log"], "readwrite", t => { t.objectStore("items").put(it); t.objectStore("log").add(l); });
@@ -253,6 +279,7 @@ async function transfer(A: Drive, B: Drive, root: string, emailB: string) {
       progress();
     }
   }));
+  clearInterval(ramp);
   if (job.live) print(job.live);
   return printStats(root);
 }
@@ -274,7 +301,7 @@ async function verify(B: Drive, root: string) {
   const ids = done.slice(0, SAMPLE).map(it => it.id);
   const bad: string[] = [];
   let i = 0;
-  await Promise.all(Array.from({ length: WORKERS }, async () => {
+  await Promise.all(Array.from({ length: VERIFY_LANES }, async () => {
     while (i < ids.length) {
       const id = ids[i++];
       if (!(await B.req("GET", `/files/${id}`, { query: { fields: "ownedByMe" } })).ownedByMe) bad.push(id);
@@ -286,7 +313,9 @@ async function verify(B: Drive, root: string) {
 }
 
 // ---------------------------------------------------------------- job
-async function run({ mode, root, emailA, emailB, tokens }: StartMsg) {
+async function run({ mode, root, emailA, emailB, tokens, lanes }: StartMsg) {
+  maxLanes = limit = lanes && LANE_CHOICES.includes(lanes) ? lanes : 4;
+  throttles = 0; lastThrottle = 0;
   const names = mode === "retry" ? ["retry-errors", "transfer", "verify"] : ["scan", "transfer", "verify"];
   stopping = false;
   Object.assign(job, { status: "running", authExpired: false, steps: names.map(name => ({ name, status: "pending" })),
@@ -299,6 +328,7 @@ async function run({ mode, root, emailA, emailB, tokens }: StartMsg) {
   let status: JobState["status"] = "done";
   try {
     const A = new Drive(tokens.A), B = new Drive(tokens.B);
+    A.onThrottle = B.onThrottle = onThrottle;
     const [gotA, gotB] = [await A.email(), await B.email()];
     print(`A = ${gotA}   B = ${gotB}`);
     if (gotA.toLowerCase() !== emailA.toLowerCase() || gotB.toLowerCase() !== emailB.toLowerCase())
@@ -333,6 +363,11 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   if (data.cmd === "start") {
     if (job.status === "running") return send({ type: "error", error: "A job is already running" });
     run(data);
+  } else if (data.cmd === "speed") {
+    if (LANE_CHOICES.includes(data.lanes)) {
+      maxLanes = data.lanes;
+      limit = Date.now() - lastThrottle > 30_000 ? maxLanes : Math.min(limit, maxLanes);  // calm -> go straight to the new speed
+    }
   } else if (data.cmd === "stop") {
     if (job.status === "running") { stopping = true; print("Stopping after the files in flight…"); }
   } else if (data.cmd === "roots") {

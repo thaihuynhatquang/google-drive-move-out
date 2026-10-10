@@ -294,3 +294,19 @@ button.danger { background: var(--bad); color: #fff8ee; }
 .cb-failed .cb-title { color: var(--bad); }
 .cb-failed .cb-belt .fill { background: var(--bad); }
 .cb-back { display: inline-block; margin-top: 16px; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--orange); }
+
+/* ---------- speed selector ---------- */
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 2px solid var(--line); }
+.seg button {
+  box-shadow: none; border: none; border-left: 2px solid var(--line); padding: 7px 4px; font-size: 15px; letter-spacing: 1px;
+  background: var(--kraft-3); color: var(--ink-2);
+}
+.seg button:first-child { border-left: none; }
+.seg button span { font-family: var(--mono); font-size: 11px; opacity: .7; margin-left: 2px; }
+.seg button.on { background: var(--ink); color: var(--paper); }
+.seg button:hover:not(:disabled) { transform: none; box-shadow: none; background: var(--paper); }
+.seg button.on:hover:not(:disabled) { background: var(--ink); }
+.hint { margin-top: 6px; font-size: 12px; line-height: 1.4; color: var(--ink-3); }
+.lanes { border: 2px solid var(--line); border-top: none; padding: 6px 12px; background: var(--kraft-3);
+  font-family: var(--mono); font-size: 11px; letter-spacing: .5px; color: var(--ink-2); }
+.lanes.hot { color: var(--warn); }

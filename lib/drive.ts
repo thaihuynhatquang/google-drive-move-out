@@ -34,6 +34,8 @@ type ReqOpts = { query?: Record<string, string>; body?: unknown; maxTries?: numb
 
 export class Drive {
   token: Token;
+  /** Called whenever Google rate-limits a request (used to slow the transfer down). */
+  onThrottle?: () => void;
   private refreshing: Promise<void> | null = null;
 
   constructor(token: Token) {
@@ -73,6 +75,7 @@ export class Drive {
       const reason: string = j.error?.errors?.[0]?.reason || "";
       if (r.status === 401) { this.token.access_token = null; continue; }
       if ([429, 500, 502, 503, 504].includes(r.status) || (r.status === 403 && RETRY_REASONS.has(reason))) {
+        if (r.status === 429 || r.status === 403) this.onThrottle?.();
         const wait = reason === "sharingRateLimitExceeded" ? 300 : Math.min(64, 2 ** i);
         await sleep(wait * 1000 + Math.random() * 1000);
         continue;
