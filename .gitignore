@@ -1,0 +1,8 @@
+.env
+.env*.local
+.next/
+.netlify/
+node_modules/
+next-env.d.ts
+*.tsbuildinfo
+client_secret*.json

@@ -1,0 +1,5 @@
+# Netlify builds Next.js automatically (OpenNext adapter). Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in
+# Site settings -> Environment variables. Redirect URI to register at Google: https://<site>.netlify.app/callback
+[build]
+  command = "npm run build"
+  publish = ".next"
