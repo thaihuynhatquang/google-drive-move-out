@@ -234,3 +234,18 @@ td.id { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
 @keyframes belt { to { background-position: 51px 0; } }
 @keyframes stampIn { from { transform: rotate(-6deg) scale(2.2); opacity: 0; } to { transform: rotate(-6deg) scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ---------- privacy notice (once per session) ---------- */
+.notice {
+  width: min(520px, calc(100vw - 32px)); padding: 0; border: 2px solid var(--line);
+  background: var(--paper); color: var(--ink); box-shadow: 8px 8px 0 rgba(0,0,0,.25);
+}
+.notice[open] { animation: drop .35s ease-out both; }
+.notice::backdrop { background: rgba(30, 26, 21, .55); }
+.notice-body { padding: 16px 18px 4px; font-size: 15px; line-height: 1.55; }
+.notice-body p { margin: 0 0 10px; }
+.notice-body ul { margin: 0; padding-left: 18px; }
+.notice-body li { margin-bottom: 8px; }
+.notice-body li b, .notice-body p b { font-family: var(--stencil); font-size: 18px; letter-spacing: .5px; }
+.who > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who > button { flex: none; white-space: nowrap; }

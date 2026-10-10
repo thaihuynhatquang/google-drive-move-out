@@ -197,6 +197,7 @@ export default function MoveOut() {
 
   return (
     <div className="wrap">
+      <PrivacyNotice />
       <header>
         <h1>Drive<br /><span>Move-Out</span></h1>
         <div className="tagline">
@@ -334,6 +335,34 @@ export default function MoveOut() {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Shown once per browser session: what the app keeps, and what it doesn't. */
+function PrivacyNotice() {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    let seen = false;
+    try { seen = sessionStorage.getItem("privacySeen") === "1"; } catch {}
+    if (!seen) ref.current?.showModal();
+  }, []);
+  const close = () => {
+    try { sessionStorage.setItem("privacySeen", "1"); } catch {}
+    ref.current?.close();
+  };
+  return (
+    <dialog ref={ref} className="notice" onCancel={close} aria-labelledby="notice-title">
+      <div className="label-head" id="notice-title">Nothing is kept <small>privacy</small></div>
+      <div className="notice-body">
+        <p>This app does <b>not</b> store your data or your Google access anywhere.</p>
+        <ul>
+          <li><b>Sign-in</b> lives only in this tab. Closing the tab signs both accounts out and revokes the access at Google.</li>
+          <li><b>Files</b> never pass through our server: your browser talks to Google Drive directly. The server only swaps sign-in codes with Google and keeps nothing.</li>
+          <li><b>On this device</b> the browser remembers the two emails and the transfer progress, so a stopped folder can resume. Clear this site&apos;s data in the browser to remove it.</li>
+        </ul>
+      </div>
+      <div className="actions"><button className="primary" type="button" autoFocus onClick={close}>Got it</button></div>
+    </dialog>
   );
 }
 
