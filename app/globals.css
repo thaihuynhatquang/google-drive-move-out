@@ -267,3 +267,18 @@ td.id { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
 .who > button { flex: none; white-space: nowrap; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
 .field-err { margin-top: 6px; font-family: var(--body); font-size: 13px; font-weight: 600; color: var(--bad); animation: shake .35s ease-out; }
+
+/* ---------- popconfirm ---------- */
+.pop {
+  position: fixed; z-index: 50; width: min(300px, calc(100vw - 16px)); padding: 12px 14px;
+  background: var(--paper); color: var(--ink); border: 2px solid var(--line); box-shadow: 5px 5px 0 rgba(0,0,0,.22);
+  text-align: left; white-space: normal; text-transform: none; letter-spacing: 0; font: 400 14px/1.4 var(--body);
+  animation: drop .18s ease-out both;
+}
+.pop.above { transform: translateY(-100%); animation: none; }
+.pop-title { margin: 0 0 4px; font-family: var(--stencil); font-weight: 800; font-size: 19px; letter-spacing: .5px; line-height: 1.15; }
+.pop-text { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: var(--ink-2); text-transform: none; letter-spacing: 0; font-family: var(--body); }
+.pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+button.danger { background: var(--bad); color: #fff8ee; }
+.tokens > span { min-width: 0; line-height: 1.6; }
+.tokens > button, .who > button { flex: none; white-space: nowrap; }

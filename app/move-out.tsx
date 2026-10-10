@@ -1,6 +1,7 @@
 "use client";
 // Page logic: Google sign-in (redirect + PKCE, see lib/auth), talking to the transfer worker, rendering.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ROLE, same, session, startLogin, type Label, type Saved } from "@/lib/auth";
 import { oauth } from "@/lib/drive";
 import type { FromWorker, JobState, JobStatus, LogLine, RootRow, ToWorker } from "@/lib/types";
@@ -252,7 +253,8 @@ export default function MoveOut() {
                       : "Not signed in"}
                   </span>
                   {toks[l] && same(toks[l]!.email, emails[l])
-                    ? <button className="ghost pick" type="button" disabled={running} onClick={() => signOutRole(l)}>Sign out</button>
+                    ? <PopConfirm label="Sign out" confirmText="Sign out" disabled={running} onConfirm={() => signOutRole(l)}
+                                  title={`Sign out ${toks[l]!.email}?`} text="Its access is revoked at Google. You can sign in again any time." />
                     : <button className="ghost pick" type="button" disabled={running || loggingIn !== null} onClick={() => login(l)}>
                         {loggingIn === l ? "Opening Google…" : "Sign in with Google"}
                       </button>}
@@ -275,9 +277,10 @@ export default function MoveOut() {
           </div>
           <div className="tokens">
             <span>{loggedIn.length
-              ? <>Signed in: <span className="on">{loggedIn.map(l => ROLE[l]).join(" + ")}</span> · signs out when this tab closes</>
+              ? <>Signed in <span className="on">{loggedIn.length}/2</span> · auto sign-out on tab close</>
               : "Not signed in · nothing saved"}</span>
-            <button className="ghost pick" type="button" disabled={running || !loggedIn.length} onClick={logout}>Sign out</button>
+            <PopConfirm label="Sign out" confirmText="Sign out both" disabled={running || !loggedIn.length} onConfirm={logout}
+                        title="Sign out both accounts?" text="Access is revoked at Google. Saved progress stays, so you can resume later." />
           </div>
         </form>
 
@@ -346,10 +349,9 @@ export default function MoveOut() {
               <th style={{ textAlign: "right" }}>Left</th><th style={{ textAlign: "right" }}>Errors</th>
               <th style={{ textAlign: "right" }}>Skipped</th>
               <th style={{ textAlign: "right" }}>
-                {roots.length > 0 && <button className="pick ghost" type="button" disabled={running} onClick={() => {
-                  if (confirm("Delete the saved progress and history of every folder on this device? Files in Google Drive are not touched."))
-                    send({ cmd: "clearAll" });
-                }}>Clear all</button>}
+                {roots.length > 0 && <PopConfirm label="Clear all" confirmText="Clear all" danger disabled={running}
+                  onConfirm={() => send({ cmd: "clearAll" })} title="Clear the history of every folder?"
+                  text="Saved progress on this device is deleted. Files in Google Drive are not touched." />}
               </th></tr></thead>
             <tbody>
               {roots.length ? roots.map(r => {
@@ -364,11 +366,9 @@ export default function MoveOut() {
                     <td className="num">{fmt(r.skip)}</td>
                     <td className="row-actions">
                       <button className="pick ghost" type="button" onClick={() => { setRoot(r.id); rootInput.current?.focus(); }}>Load</button>
-                      <button className="pick ghost" type="button" disabled={running} title="Delete this folder's saved progress on this device"
-                              onClick={() => {
-                                if (confirm(`Forget “${r.name}”? Its saved progress on this device is deleted; files in Google Drive are not touched.`))
-                                  send({ cmd: "forget", root: r.id });
-                              }}>Forget</button>
+                      <PopConfirm label="Forget" confirmText="Forget" danger disabled={running}
+                                  onConfirm={() => send({ cmd: "forget", root: r.id })} title={`Forget “${r.name}”?`}
+                                  text="Its saved progress on this device is deleted. Files in Google Drive are not touched." />
                     </td>
                   </tr>
                 );
@@ -406,6 +406,62 @@ function PrivacyNotice() {
       </div>
       <div className="actions"><button className="primary" type="button" autoFocus onClick={close}>Got it</button></div>
     </dialog>
+  );
+}
+
+/** Button that asks for confirmation in a small popover before acting (portaled + fixed, so nothing clips it). */
+function PopConfirm({ label, title, text, confirmText, onConfirm, disabled, danger }: {
+  label: string; title: string; text?: string; confirmText: string; onConfirm: () => void; disabled?: boolean; danger?: boolean;
+}) {
+  const [pos, setPos] = useState<{ top: number; right: number; above: boolean } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const close = () => setPos(null);
+    const onDown = (e: MouseEvent) => {
+      if (!pop.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { close(); btn.current?.focus(); } };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close);  // page scroll only (inner panes auto-scroll while transferring)
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [pos]);
+
+  const toggle = () => {
+    if (pos) return setPos(null);
+    const r = btn.current!.getBoundingClientRect();
+    const above = r.bottom + 170 > window.innerHeight;  // not enough room below -> open upwards
+    setPos({ top: above ? r.top - 8 : r.bottom + 8, right: Math.max(8, window.innerWidth - r.right), above });
+  };
+
+  return (
+    <>
+      <button ref={btn} className="ghost pick" type="button" disabled={disabled} aria-haspopup="dialog" aria-expanded={!!pos} onClick={toggle}>
+        {label}
+      </button>
+      {pos && createPortal(
+        <div ref={pop} className={"pop" + (pos.above ? " above" : "")} role="dialog" aria-label={title}
+             style={{ top: pos.top, right: pos.right }}>
+          <p className="pop-title">{title}</p>
+          {text && <p className="pop-text">{text}</p>}
+          <div className="pop-actions">
+            <button className="ghost pick" type="button" onClick={() => setPos(null)}>Cancel</button>
+            <button className={"pick " + (danger ? "danger" : "primary")} type="button" autoFocus
+                    onClick={() => { setPos(null); onConfirm(); }}>{confirmText}</button>
+          </div>
+        </div>,
+        document.body,  // portal: ancestors with transforms/animations would offset a fixed element
+      )}
+    </>
   );
 }
 
