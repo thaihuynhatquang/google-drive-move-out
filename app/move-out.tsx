@@ -21,6 +21,15 @@ const local = {
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch {} },
 };
 
+// The running job, so a reload can resume it (this tab only; no secrets)
+type Active = { root: string; emailA: string; emailB: string };
+const activeJob = {
+  get: (): Active | null => { try { return JSON.parse(sessionStorage.getItem("activeJob") || "null"); } catch { return null; } },
+  set: (v: Active | null) => {
+    try { v ? sessionStorage.setItem("activeJob", JSON.stringify(v)) : sessionStorage.removeItem("activeJob"); } catch {}
+  },
+};
+
 function parseRoot(raw: string) {
   raw = raw.trim();
   // folder: .../folders/<id>   file: .../file/d/<id>/view, docs.google.com/document/d/<id>/edit   old: ?id=<id>
@@ -41,6 +50,8 @@ export default function MoveOut() {
   const worker = useRef<Worker | null>(null);
   const prevStatus = useRef<JobStatus>("idle");
   const rootInput = useRef<HTMLInputElement>(null);
+  const goingToGoogle = useRef(false);
+  const reloading = useRef(false);
 
   const say = (text: string, ok = false) => setMsg({ text, ok });
   const send = (m: ToWorker) => worker.current?.postMessage(m);
@@ -77,6 +88,7 @@ export default function MoveOut() {
           say("Login expired or wrong account — sign in both accounts again, then Ship it (progress is kept).");
         }
         w.postMessage({ cmd: "roots" } satisfies ToWorker);
+        activeJob.set(null);
       }
       prevStatus.current = s.status;
       setJob({ ...s });
@@ -85,10 +97,49 @@ export default function MoveOut() {
     worker.current = w;
     w.postMessage({ cmd: "state" } satisfies ToWorker);
     w.postMessage({ cmd: "roots" } satisfies ToWorker);
+
+    // A reload (F5) kills the worker mid-transfer -> pick the same folder up again (progress is in IndexedDB)
+    const resume = activeJob.get(), A = session.get("A"), B = session.get("B");
+    if (resume && A && B && same(A.email, resume.emailA) && same(B.email, resume.emailB)) {
+      setRoot(resume.root);
+      say("Page reloaded — resuming the transfer…", true);
+      w.postMessage({ cmd: "start", ...resume, tokens: { A: A.token, B: B.token } } satisfies ToWorker);
+    } else activeJob.set(null);
     return () => { w.terminate(); worker.current = null; };
   }, [saveTok]);
 
   const running = job.status === "running";
+
+  // Leaving the page (close, navigate away) signs out: revoke both grants at Google, so the next sign-in gets a
+  // fresh consent screen. keepalive lets the request finish after the tab is gone. Exceptions: the trip to
+  // Google's sign-in, and a keyboard reload (F5 / Ctrl+R). The browser's reload button can't be told apart from closing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r")) reloading.current = true;
+    };
+    const onHide = () => {
+      if (goingToGoogle.current || reloading.current) return;
+      for (const l of ["A", "B"] as Label[]) {
+        const t = session.get(l);
+        if (!t?.token.refresh_token) continue;
+        fetch("/api/oauth", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ action: "revoke", token: t.token.refresh_token }) }).catch(() => {});
+        session.set(l, null);
+      }
+    };
+    // back/forward cache: the page can come back after pagehide -> resync with the (now empty) storage
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) { goingToGoogle.current = reloading.current = false; setLoggingIn(null); setToks({ A: session.get("A") ?? undefined, B: session.get("B") ?? undefined }); }
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pagehide", onHide);
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("pageshow", onShow);
+    };
+  }, []);
 
   // closing the tab stops the transfer -> ask first; show progress in the tab title
   useEffect(() => {
@@ -106,9 +157,11 @@ export default function MoveOut() {
     local.set("rootDraft", root);  // the page reloads after Google
     setLoggingIn(l);
     try {
+      goingToGoogle.current = true;
       await startLogin(l, email);  // navigates away
     } catch (e) {
       say(`${ROLE[l][0].toUpperCase() + ROLE[l].slice(1)}: ${(e as Error).message}`);
+      goingToGoogle.current = false;
       setLoggingIn(null);
     }
   }
@@ -129,6 +182,7 @@ export default function MoveOut() {
     if (!toks.B || !same(toks.B.email, emailB)) return say("Sign in the new owner first (button under their email).");
     local.set("emailA", emailA); local.set("emailB", emailB);
     setBanner(null);
+    activeJob.set({ root: id, emailA, emailB });
     send({ cmd: "start", mode, root: id, emailA, emailB, tokens: { A: toks.A.token, B: toks.B.token } });
   }
 
@@ -185,7 +239,7 @@ export default function MoveOut() {
           </div>
           <div className="tokens">
             <span>{loggedIn.length
-              ? <>Signed in: <span className="on">{loggedIn.map(l => ROLE[l]).join(" + ")}</span> · this tab only</>
+              ? <>Signed in: <span className="on">{loggedIn.map(l => ROLE[l]).join(" + ")}</span> · signs out when this tab closes</>
               : "Not signed in · nothing saved"}</span>
             <button className="ghost pick" type="button" disabled={running || !loggedIn.length} onClick={logout}>Sign out</button>
           </div>
