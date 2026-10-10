@@ -84,6 +84,23 @@ async function roots(): Promise<RootRow[]> {
   }));
 }
 
+/** Delete one folder's saved progress, manifest and history row. */
+async function forget(root: string) {
+  await tx(["items", "log", "roots"], "readwrite", t => {
+    const del = (store: string) => {
+      const c = t.objectStore(store).index("root").openKeyCursor(IDBKeyRange.only(root));
+      c.onsuccess = () => { const cur = c.result; if (cur) { t.objectStore(store).delete(cur.primaryKey); cur.continue(); } };
+    };
+    del("items");
+    del("log");
+    t.objectStore("roots").delete(root);
+  });
+}
+
+const clearAll = () => tx(["items", "log", "roots"], "readwrite", t => {
+  for (const s of ["items", "log", "roots"]) t.objectStore(s).clear();
+});
+
 // ---------------------------------------------------------------- job state (what the page renders)
 const job: JobState = { status: "idle", steps: [], console: [], live: "", progress: null, scanned: null,
                         root: null, rootName: null, authExpired: false, items: [] };
@@ -319,6 +336,14 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   } else if (data.cmd === "stop") {
     if (job.status === "running") { stopping = true; print("Stopping after the files in flight…"); }
   } else if (data.cmd === "roots") {
+    send({ type: "roots", roots: await roots() });
+  } else if (data.cmd === "forget" || data.cmd === "clearAll") {
+    if (job.status === "running") return send({ type: "error", error: "Stop the transfer before deleting saved data" });
+    if (data.cmd === "forget") await forget(data.root); else await clearAll();
+    if (data.cmd === "clearAll" || job.root === data.root)  // the board was showing it -> back to idle
+      Object.assign(job, { status: "idle", steps: [], console: [], live: "", progress: null, scanned: null,
+                           root: null, rootName: null, authExpired: false, items: [] });
+    post(true);
     send({ type: "roots", roots: await roots() });
   } else if (data.cmd === "state") {
     post(true);

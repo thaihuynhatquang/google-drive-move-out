@@ -249,3 +249,4 @@ td.id { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
 .notice-body li b, .notice-body p b { font-family: var(--stencil); font-size: 18px; letter-spacing: .5px; }
 .who > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who > button { flex: none; white-space: nowrap; }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }

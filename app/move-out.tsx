@@ -314,7 +314,13 @@ export default function MoveOut() {
           <table>
             <thead><tr><th>Folder</th><th>Progress</th><th style={{ textAlign: "right" }}>Moved</th>
               <th style={{ textAlign: "right" }}>Left</th><th style={{ textAlign: "right" }}>Errors</th>
-              <th style={{ textAlign: "right" }}>Skipped</th><th /></tr></thead>
+              <th style={{ textAlign: "right" }}>Skipped</th>
+              <th style={{ textAlign: "right" }}>
+                {roots.length > 0 && <button className="pick ghost" type="button" disabled={running} onClick={() => {
+                  if (confirm("Delete the saved progress and history of every folder on this device? Files in Google Drive are not touched."))
+                    send({ cmd: "clearAll" });
+                }}>Clear all</button>}
+              </th></tr></thead>
             <tbody>
               {roots.length ? roots.map(r => {
                 const total = r.done + r.todo, pct = total ? Math.round((100 * r.done) / total) : 100;
@@ -326,7 +332,14 @@ export default function MoveOut() {
                     <td className="num">{fmt(r.todo)}</td>
                     <td className="num" style={{ color: r.err ? "var(--bad)" : "inherit" }}>{fmt(r.err)}</td>
                     <td className="num">{fmt(r.skip)}</td>
-                    <td><button className="pick ghost" type="button" onClick={() => { setRoot(r.id); rootInput.current?.focus(); }}>Load</button></td>
+                    <td className="row-actions">
+                      <button className="pick ghost" type="button" onClick={() => { setRoot(r.id); rootInput.current?.focus(); }}>Load</button>
+                      <button className="pick ghost" type="button" disabled={running} title="Delete this folder's saved progress on this device"
+                              onClick={() => {
+                                if (confirm(`Forget “${r.name}”? Its saved progress on this device is deleted; files in Google Drive are not touched.`))
+                                  send({ cmd: "forget", root: r.id });
+                              }}>Forget</button>
+                    </td>
                   </tr>
                 );
               }) : <tr><td colSpan={7} className="empty">No folders yet.</td></tr>}

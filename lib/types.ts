@@ -23,5 +23,6 @@ export type JobState = {
 export type RootRow = { id: string; name: string; done: number; skip: number; todo: number; err: number };
 
 export type StartMsg = { cmd: "start"; mode?: "retry"; root: string; emailA: string; emailB: string; tokens: { A: Token; B: Token } };
-export type ToWorker = StartMsg | { cmd: "stop" } | { cmd: "roots" } | { cmd: "state" };
+export type ToWorker = StartMsg | { cmd: "stop" } | { cmd: "roots" } | { cmd: "state" }
+  | { cmd: "forget"; root: string } | { cmd: "clearAll" };
 export type FromWorker = { type: "state"; state: JobState } | { type: "roots"; roots: RootRow[] } | { type: "error"; error: string };
