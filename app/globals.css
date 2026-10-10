@@ -92,7 +92,7 @@ h1 span { color: var(--orange); }
   border-bottom: 1px dashed transparent;
 }
 .field input:focus { border-bottom-color: var(--orange); }
-.field input::placeholder { color: var(--ink-3); opacity: .6; }
+.field input::placeholder { color: var(--ink-3); opacity: .45; font-style: italic; }
 .arrow-row { display: flex; align-items: center; gap: 10px; padding: 4px 14px; border-bottom: 2px solid var(--line);
   font-family: var(--stencil); font-weight: 800; font-size: 16px; letter-spacing: 3px; color: var(--orange); }
 .arrow-row::after { content: ""; flex: 1; height: 2px; background: repeating-linear-gradient(90deg, var(--orange) 0 8px, transparent 8px 14px); }
@@ -121,8 +121,24 @@ button.ghost { font-size: 15px; padding: 8px 12px; }
 .who .on { color: var(--ok); font-weight: 600; }
 .keep { display: none; margin-top: 6px; color: var(--orange); font-weight: 600; text-transform: none; letter-spacing: .3px; }
 .keep.show { display: block; animation: pulse 2s ease-in-out infinite; }
-.msg { font-family: var(--mono); font-size: 11px; color: var(--bad); padding: 0 14px 12px; min-height: 0; }
+/* status / error message under the label: big enough to notice */
+.msg {
+  margin: 0 14px 12px; padding: 10px 12px 10px 38px; position: relative;
+  font-family: var(--body); font-size: 14px; font-weight: 500; line-height: 1.4;
+  border: 2px solid currentColor; background: var(--paper);
+}
+.msg::before {
+  position: absolute; left: 10px; top: 9px; width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center; font: 800 12px/1 var(--mono); color: var(--paper);
+}
+.msg.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 9%, var(--paper)); animation: shake .35s ease-out; }
+.msg.bad::before { content: "!"; background: var(--bad); }
+.msg.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--paper)); }
+.msg.ok::before { content: "✓"; background: var(--ok); }
 .msg:empty { display: none; }
+.field input.invalid { border-bottom: 2px solid var(--bad); background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.field:has(input.invalid) label { color: var(--bad); }
+@keyframes shake { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
 
 /* ---------- status board ---------- */
 .board { animation: drop .6s .16s ease-out both; }

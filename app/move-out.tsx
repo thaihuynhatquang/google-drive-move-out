@@ -41,7 +41,8 @@ function parseRoot(raw: string) {
 export default function MoveOut() {
   const [emails, setEmails] = useState<Record<Label, string>>({ A: "", B: "" });
   const [root, setRoot] = useState("");
-  const [msg, setMsg] = useState<{ text: string; ok?: boolean }>({ text: "" });
+  const [msg, setMsg] = useState<{ text: string; ok?: boolean; n?: number }>({ text: "" });
+  const [invalid, setInvalid] = useState<string[]>([]);  // input ids to highlight
   const [toks, setToks] = useState<Partial<Record<Label, Saved>>>({});
   const [loggingIn, setLoggingIn] = useState<Label | null>(null);
   const [job, setJob] = useState<JobState>(IDLE);
@@ -53,7 +54,13 @@ export default function MoveOut() {
   const goingToGoogle = useRef(false);
   const reloading = useRef(false);
 
-  const say = (text: string, ok = false) => setMsg({ text, ok });
+  const say = (text: string, ok = false) => setMsg({ text, ok, n: Date.now() });  // n re-triggers the shake
+  /** Highlight + focus the empty fields and say what is missing. */
+  const missing = (ids: string[], text: string) => {
+    setInvalid(ids);
+    say(text);
+    document.getElementById(ids[0])?.focus();
+  };
   const send = (m: ToWorker) => worker.current?.postMessage(m);
   const saveTok = useCallback((l: Label, v: Saved | null) => {
     session.set(l, v);
@@ -157,7 +164,7 @@ export default function MoveOut() {
 
   async function login(l: Label) {
     const email = emails[l].trim();
-    if (!email) return say(`Enter the ${ROLE[l]}'s email first.`);
+    if (!email) return missing(["email" + l], `Enter the ${ROLE[l]}'s email first, then sign in.`);
     local.set("email" + l, email);
     local.set("rootDraft", root);  // the page reloads after Google
     setLoggingIn(l);
@@ -171,6 +178,17 @@ export default function MoveOut() {
     }
   }
 
+  /** Sign one role out (revoke at Google) so another account can be entered and signed in. */
+  function signOutRole(l: Label) {
+    const t = toks[l];
+    if (t?.token.refresh_token) oauth("revoke", { token: t.token.refresh_token }).catch(() => {});
+    saveTok(l, null);
+    say(`Signed out ${t?.email ?? ""} — enter the ${ROLE[l]}'s email and sign in again.`, true);
+    const input = document.getElementById("email" + l) as HTMLInputElement | null;
+    input?.focus();
+    input?.select();
+  }
+
   async function logout() {
     const list = (["A", "B"] as Label[]).map(l => toks[l]).filter(Boolean) as Saved[];
     const res = await Promise.all(list.map(t =>
@@ -182,7 +200,8 @@ export default function MoveOut() {
   function start(mode?: "retry") {
     say("");
     const emailA = emails.A.trim(), emailB = emails.B.trim(), id = parseRoot(root);
-    if (!emailA || !emailB || !id) return say("Fill in all three fields.");
+    const empty = [!emailA && "emailA", !emailB && "emailB", !id && "root"].filter(Boolean) as string[];
+    if (empty.length) return missing(empty, "Fill in the highlighted field" + (empty.length > 1 ? "s." : "."));
     if (!toks.A || !same(toks.A.email, emailA)) return say("Sign in the current owner first (button under their email).");
     if (!toks.B || !same(toks.B.email, emailB)) return say("Sign in the new owner first (button under their email).");
     local.set("emailA", emailA); local.set("emailB", emailB);
@@ -209,15 +228,16 @@ export default function MoveOut() {
 
       <div className="grid">
         {/* shipping label */}
-        <form className="label" autoComplete="on" onSubmit={e => { e.preventDefault(); start(); }}>
+        <form className="label" autoComplete="on" noValidate onSubmit={e => { e.preventDefault(); start(); }}>
           <div className="label-head">Shipping label <small>{job.root ? `No. ${job.root.slice(0, 10)}…` : "No. —"}</small></div>
           {(["A", "B"] as Label[]).map(l => (
             <div key={l} style={{ display: "contents" }}>
               {l === "B" && <div className="arrow-row">Ship to</div>}
               <div className="field">
                 <label htmlFor={"email" + l}>{l === "A" ? "From · current owner" : "To · new owner"} <b>{l}</b></label>
-                <input id={"email" + l} type="email" placeholder={`${l.toLowerCase()}@gmail.com`} required readOnly={running}
-                       value={emails[l]} onChange={e => setEmails(m => ({ ...m, [l]: e.target.value }))} />
+                <input id={"email" + l} type="email" placeholder={l === "A" ? "e.g. old-account@gmail.com" : "e.g. new-account@gmail.com"} required readOnly={running}
+                       className={invalid.includes("email" + l) ? "invalid" : ""} aria-invalid={invalid.includes("email" + l)}
+                       value={emails[l]} onChange={e => { setEmails(m => ({ ...m, [l]: e.target.value })); setInvalid(v => v.filter(x => x !== "email" + l)); }} />
                 <div className="who">
                   <span>
                     {toks[l]
@@ -225,9 +245,11 @@ export default function MoveOut() {
                           {!same(toks[l]!.email, emails[l]) && " · differs from email"}</>
                       : "Not signed in"}
                   </span>
-                  <button className="ghost pick" type="button" disabled={running || loggingIn !== null} onClick={() => login(l)}>
-                    {loggingIn === l ? "Opening Google…" : toks[l] ? "Use another account" : "Sign in with Google"}
-                  </button>
+                  {toks[l] && same(toks[l]!.email, emails[l])
+                    ? <button className="ghost pick" type="button" disabled={running} onClick={() => signOutRole(l)}>Sign out</button>
+                    : <button className="ghost pick" type="button" disabled={running || loggingIn !== null} onClick={() => login(l)}>
+                        {loggingIn === l ? "Opening Google…" : "Sign in with Google"}
+                      </button>}
                 </div>
               </div>
             </div>
@@ -235,10 +257,11 @@ export default function MoveOut() {
           <div className="field">
             <label htmlFor="root">Contents · folder or file <b>ID / URL</b></label>
             <input id="root" ref={rootInput} placeholder="drive.google.com/drive/folders/… or /file/d/…" required
-                   readOnly={running} value={root} onChange={e => setRoot(e.target.value)} />
+                   readOnly={running} className={invalid.includes("root") ? "invalid" : ""} aria-invalid={invalid.includes("root")}
+                   value={root} onChange={e => { setRoot(e.target.value); setInvalid(v => v.filter(x => x !== "root")); }} />
           </div>
           <div className="barcode" aria-hidden="true" />
-          {msg.text && <div className="msg" style={msg.ok ? { color: "var(--ok)" } : undefined}>{msg.text}</div>}
+          {msg.text && <div key={msg.n} className={"msg " + (msg.ok ? "ok" : "bad")} role={msg.ok ? "status" : "alert"}>{msg.text}</div>}
           <div className="actions">
             <button className="primary" type="submit" disabled={running}>Ship it →</button>
             <button className="ghost" type="button" disabled={!running} onClick={() => send({ cmd: "stop" })}>Stop</button>
