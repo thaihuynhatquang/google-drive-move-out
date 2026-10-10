@@ -282,3 +282,15 @@ td.id { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
 button.danger { background: var(--bad); color: #fff8ee; }
 .tokens > span { min-width: 0; line-height: 1.6; }
 .tokens > button, .who > button { flex: none; white-space: nowrap; }
+
+/* ---------- /callback (sign-in hand-off) ---------- */
+.cb { min-height: calc(100vh - 88px); display: grid; place-items: center; }
+.cb-card { width: min(480px, 100%); }
+.cb-body { padding: 22px 20px 20px; }
+.cb-title { margin: 0 0 8px; font-family: var(--stencil); font-weight: 900; font-size: 52px; line-height: .95; text-transform: uppercase; }
+.cb-text { margin: 0 0 18px; font-size: 15px; line-height: 1.5; color: var(--ink-2); }
+.cb-belt { height: 22px; }
+.cb-belt .fill { background-size: 51px 22px; }
+.cb-failed .cb-title { color: var(--bad); }
+.cb-failed .cb-belt .fill { background: var(--bad); }
+.cb-back { display: inline-block; margin-top: 16px; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--orange); }
