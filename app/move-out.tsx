@@ -115,7 +115,8 @@ export default function MoveOut() {
   // Google's sign-in, and a keyboard reload (F5 / Ctrl+R). The browser's reload button can't be told apart from closing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r")) reloading.current = true;
+      // any other key: the reload was cancelled (e.g. "Leave site?" dialog) -> back to normal
+      reloading.current = e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r");
     };
     const onHide = () => {
       if (goingToGoogle.current || reloading.current) return;
@@ -131,11 +132,14 @@ export default function MoveOut() {
     const onShow = (e: PageTransitionEvent) => {
       if (e.persisted) { goingToGoogle.current = reloading.current = false; setLoggingIn(null); setToks({ A: session.get("A") ?? undefined, B: session.get("B") ?? undefined }); }
     };
+    const onPointer = () => { reloading.current = false; };
     window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointer);
     window.addEventListener("pagehide", onHide);
     window.addEventListener("pageshow", onShow);
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("pagehide", onHide);
       window.removeEventListener("pageshow", onShow);
     };

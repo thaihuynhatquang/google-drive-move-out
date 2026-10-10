@@ -113,14 +113,23 @@ async function printStats(root: string) {
 }
 
 // ---------------------------------------------------------------- steps
-async function scan(A: Drive, root: string) {
-  const r = await A.req("GET", `/files/${root}`, { query: { fields: "id,name,mimeType,ownedByMe" } });
+// Owned by A -> to transfer; already owned by B (moved earlier) -> done; anything else (shortcuts, other owners) -> skip
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function initialStatus(f: any, emailB: string): Status {
+  if (f.mimeType === SHORTCUT_MIME) return "skip";
+  if (f.ownedByMe) return "new";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (f.owners || []).some((o: any) => (o.emailAddress || "").toLowerCase() === emailB.toLowerCase()) ? "done" : "skip";
+}
+
+async function scan(A: Drive, root: string, emailB: string) {
+  const r = await A.req("GET", `/files/${root}`, { query: { fields: "id,name,mimeType,ownedByMe,owners(emailAddress)" } });
   job.rootName = r.name;
   print(`Root: ${r.name}`);
   const known = new Map((await rootItems(root)).map(it => [it.id, it]));
   await tx("roots", "readwrite", t => { t.objectStore("roots").put({ id: root, name: r.name, added: Date.now() }); });
   if (!known.has(root)) {
-    const it: Item = { root, id: root, name: r.name, mime: r.mimeType, parent: null, status: r.ownedByMe ? "new" : "skip" };
+    const it: Item = { root, id: root, name: r.name, mime: r.mimeType, parent: null, status: initialStatus(r, emailB) };
     await putItem(it);
     known.set(root, it);
   }
@@ -133,12 +142,11 @@ async function scan(A: Drive, root: string) {
     do {
       const res = await A.req("GET", "/files", { query: {
         q: `'${folder.id}' in parents and trashed=false`,
-        fields: "nextPageToken, files(id,name,mimeType,ownedByMe)",
+        fields: "nextPageToken, files(id,name,mimeType,ownedByMe,owners(emailAddress))",
         pageSize: "1000", ...(pageToken ? { pageToken } : {}) } });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fresh: Item[] = (res.files || []).filter((f: any) => !known.has(f.id)).map((f: any) => ({
-        root, id: f.id, name: f.name, mime: f.mimeType, parent: folder.id,
-        status: f.ownedByMe && f.mimeType !== SHORTCUT_MIME ? "new" : "skip" }));
+        root, id: f.id, name: f.name, mime: f.mimeType, parent: folder.id, status: initialStatus(f, emailB) }));
       await tx("items", "readwrite", t => { const s = t.objectStore("items"); fresh.forEach(it => s.put(it)); });
       for (const it of fresh) { known.set(it.id, it); if (it.mime === FOLDER_MIME) queue.push(it); }
       total += fresh.length;
@@ -194,21 +202,28 @@ function hms(sec: number) {
   return `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
 }
 
+/** Overall progress of the folder (earlier runs included), so a resumed run does not start from 0%. */
+async function baseline(root: string) {
+  const all = await rootItems(root);
+  const rows = all.filter(it => (it.status === "new" || it.status === "offered") && it.err == null);
+  const before = all.filter(it => it.status === "done").length;
+  return { rows, before, total: before + rows.length };
+}
+
 async function transfer(A: Drive, B: Drive, root: string, emailB: string) {
-  const rows = (await rootItems(root)).filter(it => (it.status === "new" || it.status === "offered") && it.err == null);
-  const total = rows.length;
-  print(`To transfer: ${fmt(total)} items`);
+  const { rows, before, total } = await baseline(root);
+  print(`To transfer: ${fmt(rows.length)} items (${fmt(before)} already done)`);
   const t0 = Date.now();
   let i = 0, n = 0, nDone = 0, nErr = 0;
   const progress = () => {
     const rate = n / Math.max((Date.now() - t0) / 1000, 1e-9);
-    const p = { pct: total ? (100 * n) / total : 100, n, total, done: nDone, err: nErr,
-                rate: Math.round(rate * 60), eta: hms(rate > 0 ? (total - n) / rate : 0) };
+    const p = { pct: total ? (100 * (before + n)) / total : 100, n: before + n, total, done: before + nDone, err: nErr,
+                rate: Math.round(rate * 60), eta: hms(rate > 0 ? (rows.length - n) / rate : 0) };
     job.progress = p;
-    live(`[${p.pct.toFixed(1).padStart(5)}%] ${fmt(n)}/${fmt(total)}  done=${fmt(nDone)}  err=${fmt(nErr)}  ${fmt(p.rate)}/min  ETA ${p.eta}`);
+    live(`[${p.pct.toFixed(1).padStart(5)}%] ${fmt(p.n)}/${fmt(total)}  done=${fmt(p.done)}  err=${fmt(nErr)}  ${fmt(p.rate)}/min  ETA ${p.eta}`);
   };
   progress();
-  await Promise.all(Array.from({ length: Math.min(WORKERS, total) }, async () => {
+  await Promise.all(Array.from({ length: Math.min(WORKERS, rows.length) }, async () => {
     while (i < rows.length && !stopping) {
       const it = rows[i++];
       const r = await transferOne(A, B, it.id, it.perm_id, emailB);
@@ -260,6 +275,8 @@ async function run({ mode, root, emailA, emailB, tokens }: StartMsg) {
   Object.assign(job, { status: "running", authExpired: false, steps: names.map(name => ({ name, status: "pending" })),
                        progress: null, scanned: null, live: "", console: [],
                        rootName: root === job.root ? job.rootName : null, root, items: await logTail(root) });
+  const b = await baseline(root);
+  if (b.total) job.progress = { pct: (100 * b.before) / b.total, n: b.before, total: b.total, done: b.before, err: 0, rate: 0, eta: "—" };
   post(true);
 
   let status: JobState["status"] = "done";
@@ -276,9 +293,9 @@ async function run({ mode, root, emailA, emailB, tokens }: StartMsg) {
       st.status = "running";
       print(`$ ${st.name}`);
       let warn = false;
-      if (st.name === "scan") await scan(A, root);
+      if (st.name === "scan") await scan(A, root, gotB);
       else if (st.name === "retry-errors") await retryErrors(root);
-      else if (st.name === "transfer") { job.progress = null; warn = (await transfer(A, B, root, gotB)) > 0; }
+      else if (st.name === "transfer") { warn = (await transfer(A, B, root, gotB)) > 0; }
       else if (st.name === "verify") await verify(B, root);
       if (stopping) { st.status = "stopped"; break; }
       st.status = warn ? "warn" : "ok";
