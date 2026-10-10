@@ -149,7 +149,8 @@ export default function MoveOut() {
   useEffect(() => {
     document.title = running && job.progress ? `${Math.floor(job.progress.pct)}% · Drive Move-Out` : "Drive Move-Out";
     if (!running) return;
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    // F5 / Ctrl+R resumes by itself after the reload -> no "Reload site?" prompt for it
+    const warn = (e: BeforeUnloadEvent) => { if (reloading.current) return; e.preventDefault(); e.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [running, job.progress]);
