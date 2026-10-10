@@ -266,3 +266,4 @@ td.id { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
 .who > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who > button { flex: none; white-space: nowrap; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.field-err { margin-top: 6px; font-family: var(--body); font-size: 13px; font-weight: 600; color: var(--bad); animation: shake .35s ease-out; }
