@@ -9,15 +9,20 @@ const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const json = (status: number, body: unknown) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
-function allowedOrigins(req: NextRequest) {
+/** Same-origin check. Behind a proxy (Netlify) req.nextUrl is the internal URL, so compare with the Host the browser used. */
+function isAllowed(req: NextRequest, origin: string) {
   const extra = (process.env.ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
-  return new Set([req.nextUrl.origin, ...extra]);
+  if (extra.includes(origin)) return true;
+  let host: string;
+  try { host = new URL(origin).host; } catch { return false; }
+  const reqHost = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  return !!reqHost && host === reqHost.split(",")[0].trim();
 }
 
 export async function POST(req: NextRequest) {
   // Only our own pages may use the client secret
   const origin = req.headers.get("origin") || "";
-  if (!allowedOrigins(req).has(origin)) return json(403, { error: "forbidden", message: `Origin ${origin} not allowed` });
+  if (!isAllowed(req, origin)) return json(403, { error: "forbidden", message: `Origin ${origin} not allowed` });
 
   const clientId = process.env.GOOGLE_CLIENT_ID, clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret)
