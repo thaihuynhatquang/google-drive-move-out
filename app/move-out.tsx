@@ -54,6 +54,7 @@ export default function MoveOut() {
   const prevStatus = useRef<JobStatus>("idle");
   const rootInput = useRef<HTMLInputElement>(null);
   const goingToGoogle = useRef(false);
+  const baseTitle = useRef<string | null>(null);
   const reloading = useRef(false);
 
   const say = (text: string, ok = false) => setMsg({ text, ok, n: Date.now() });  // n re-triggers the shake
@@ -159,7 +160,9 @@ export default function MoveOut() {
 
   // closing the tab stops the transfer -> ask first; show progress in the tab title
   useEffect(() => {
-    document.title = running && job.progress ? `${Math.floor(job.progress.pct)}% · Drive Move-Out` : "Drive Move-Out";
+    // progress in the tab title while running; otherwise keep the server-rendered (SEO) title
+    baseTitle.current ??= document.title;
+    document.title = running && job.progress ? `${Math.floor(job.progress.pct)}% · Drive Move-Out` : baseTitle.current;
     if (!running) return;
     // F5 / Ctrl+R resumes by itself after the reload -> no "Reload site?" prompt for it
     const warn = (e: BeforeUnloadEvent) => { if (reloading.current) return; e.preventDefault(); e.returnValue = ""; };
@@ -398,6 +401,19 @@ export default function MoveOut() {
           </table>
         </div>
       </section>
+
+      <footer className="about">
+        <p>
+          <b>Drive Move-Out</b> transfers ownership of a Google Drive folder, including every file and subfolder inside it,
+          from one personal Google account to another. Google Drive only transfers one item at a time and a folder&apos;s
+          contents are not included; this tool does all of them for you. Nothing is downloaded or re-uploaded: the files stay
+          where they are, keep their links and sharing, and move to the new owner&apos;s storage.
+        </p>
+        <p>
+          Free and open source: <a href="https://github.com/thaihuynhatquang/google-drive-move-out">source code on GitHub</a>.
+          Not affiliated with Google.
+        </p>
+      </footer>
     </div>
   );
 }

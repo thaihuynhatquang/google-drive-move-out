@@ -1,12 +1,26 @@
-# Drive Move-Out
+# Drive Move-Out: transfer ownership of a Google Drive folder to another account
 
-Move the ownership of a whole Google Drive folder (or a single file) from one personal Google account to another, right from your browser.
+**Bulk-transfer ownership of a Google Drive folder, including every file and subfolder inside it, from one Gmail account to another.** No downloading, no re-uploading: the files stay where they are and only the owner changes, so they move to the new account's storage quota.
 
-Nothing is copied or re-uploaded. The files stay exactly where they are; only the owner changes, so they move to the new account's storage quota. Sharing, links and comments are preserved.
+**[Live demo → google-move-out.quangthn.net](https://google-move-out.quangthn.net)**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img alt="Drive Move-Out transferring ownership of a Google Drive folder of 1,561 photos to another Gmail account: progress bar at 54%, 160 files per minute, per-file manifest and console" src="docs/screenshot-light.png">
+</picture>
 
 ## Why
 
-Google Drive lets a personal account transfer ownership to another personal account, but only one item at a time: transferring a folder does not transfer what is inside it. A folder with thousands of photos means thousands of manual transfers. This app walks the whole tree and does them for you.
+Google Drive lets one personal account transfer ownership to another, but only **one item at a time**, and transferring a folder **does not transfer the files inside it**. Moving a folder with thousands of photos to a new account by hand means thousands of manual transfers, or downloading everything and uploading it again.
+
+Drive Move-Out walks the whole folder tree and transfers every item for you. Sharing settings, links and comments are kept.
+
+Typical uses:
+
+- moving photos or documents from an old Gmail account to a new one
+- freeing up storage on a full account by moving files to another account's quota
+- handing a shared project folder over to someone else
+- consolidating two personal Google accounts
 
 ## How it works
 
@@ -98,6 +112,32 @@ lib/
 ```
 
 Built with Next.js 16, React 19 and TypeScript, with no other runtime dependencies.
+
+## FAQ
+
+**How do I transfer ownership of a Google Drive folder to another Gmail account?**
+In Drive's sharing dialog you can make someone else the owner, but only for one item at a time, and the folder's contents are not included. To transfer the folder and everything in it, sign both accounts in to Drive Move-Out, paste the folder link and press *Ship it*.
+
+**Can I move files to another Google account without downloading and re-uploading them?**
+Yes. Transferring ownership changes who owns each file. Nothing is copied, so it is much faster than downloading and uploading again, and it doesn't use bandwidth or local disk.
+
+**Does transferring ownership of a folder also transfer the files inside it?**
+Not in Google Drive itself; every file and subfolder is a separate item with its own owner. That is exactly the gap this app fills.
+
+**Will shared links, sharing settings or comments break?**
+No. The items keep their IDs, links, sharing settings and comments. The previous owner keeps editor access until it is removed.
+
+**Whose storage do the files count against after the transfer?**
+The new owner's. That's why moving ownership frees up space on the old account.
+
+**Does it work with Google Workspace (work or school) accounts?**
+No, it's for personal Gmail accounts only. Workspace administrators can transfer a user's data from the Admin console instead.
+
+**Is my data safe?**
+Files go straight between your browser and Google; the server only exchanges sign-in codes and stores nothing. See [Privacy](#privacy).
+
+**Is it free?**
+Yes. The project is open source under the MIT license, and you can use the demo or host your own copy.
 
 ## Disclaimer
 

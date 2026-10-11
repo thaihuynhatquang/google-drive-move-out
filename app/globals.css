@@ -310,3 +310,9 @@ button.danger { background: var(--bad); color: #fff8ee; }
 .lanes { border: 2px solid var(--line); border-top: none; padding: 6px 12px; background: var(--kraft-3);
   font-family: var(--mono); font-size: 11px; letter-spacing: .5px; color: var(--ink-2); }
 .lanes.hot { color: var(--warn); }
+
+/* ---------- about / footer ---------- */
+.about { margin-top: 40px; padding-top: 14px; border-top: 2px solid var(--line); max-width: 760px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+.about p { margin: 0 0 8px; }
+.about b { color: var(--ink); }
+.about a { color: var(--orange); }
