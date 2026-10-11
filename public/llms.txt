@@ -1,0 +1,27 @@
+# Drive Move-Out
+
+> Free, open-source web app that bulk-transfers ownership of a Google Drive folder, including every file and subfolder inside it, from one personal Google (Gmail) account to another. Nothing is downloaded or re-uploaded: the files stay where they are and only the owner changes, so they move to the new owner's storage quota.
+
+Google Drive only lets a personal account transfer ownership one item at a time, and transferring a folder does not transfer its contents. Drive Move-Out walks the whole folder tree and transfers every item it owns, using the Drive API's pending-owner flow: the current owner invites the new owner as pending owner, then the new owner accepts.
+
+Key facts:
+
+- Works with personal (consumer) Google accounts only, not Google Workspace.
+- Both accounts sign in in the same browser tab. Files go straight between the browser and the Google Drive API; the server only exchanges OAuth codes and stores nothing.
+- Sign-in lives in the tab's sessionStorage and is revoked when the tab closes. Progress is saved in the browser (IndexedDB), so a stopped transfer resumes where it left off.
+- Links, sharing settings and comments are kept. The previous owner keeps editor access.
+- Items the current owner doesn't own (shortcuts, files shared by others) are skipped.
+- Runs 4, 8 or 12 transfers in parallel and slows down automatically when Google rate-limits.
+
+## Links
+
+- [Web app](https://google-move-out.quangthn.net/): the live tool
+- [Source code and documentation](https://github.com/thaihuynhatquang/google-drive-move-out): README with setup, deployment and FAQ
+- [How it works](https://github.com/thaihuynhatquang/google-drive-move-out#how-it-works): the ownership transfer flow
+- [Privacy](https://github.com/thaihuynhatquang/google-drive-move-out#privacy): what is and isn't stored
+- [Limitations](https://github.com/thaihuynhatquang/google-drive-move-out#limitations): Workspace accounts, OAuth verification, rate limits
+
+## Optional
+
+- [Google Drive API: transfer file ownership](https://developers.google.com/workspace/drive/api/guides/transfer-file): the API flow this app automates
+- [License (MIT)](https://github.com/thaihuynhatquang/google-drive-move-out/blob/main/LICENSE)
