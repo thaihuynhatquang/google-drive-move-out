@@ -424,7 +424,10 @@ function PrivacyNotice() {
   useEffect(() => {
     let seen = false;
     try { seen = sessionStorage.getItem("privacySeen") === "1"; } catch {}
-    if (!seen) ref.current?.showModal();
+    if (seen) return;
+    // open after the page has painted, so the modal doesn't cover the page's main content while it loads
+    const t = setTimeout(() => ref.current?.showModal(), 700);
+    return () => clearTimeout(t);
   }, []);
   const close = () => {
     try { sessionStorage.setItem("privacySeen", "1"); } catch {}

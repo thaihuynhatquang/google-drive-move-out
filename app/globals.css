@@ -245,7 +245,8 @@ td.id { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
 .pick { font-size: 13px; padding: 4px 9px; box-shadow: 2px 2px 0 var(--line); }
 .table-wrap { overflow-x: auto; }
 
-@keyframes drop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+/* no opacity in the entrance animation: content that starts invisible is not counted as the page's LCP */
+@keyframes drop { from { transform: translateY(-10px); } to { transform: none; } }
 @keyframes pulse { 50% { opacity: .45; } }
 @keyframes belt { to { background-position: 51px 0; } }
 @keyframes stampIn { from { transform: rotate(-6deg) scale(2.2); opacity: 0; } to { transform: rotate(-6deg) scale(1); opacity: 1; } }
