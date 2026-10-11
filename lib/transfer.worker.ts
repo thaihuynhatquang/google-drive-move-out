@@ -255,7 +255,7 @@ async function transfer(A: Drive, B: Drive, root: string, emailB: string) {
     const window = Math.min(60, Math.max((now - t0) / 1000, 1));
     const rate = recent.length / window;  // files per second
     const p = { pct: total ? (100 * (before + n)) / total : 100, n: before + n, total, done: before + nDone, err: nErr,
-                rate: Math.round(rate * 60), eta: hms(rate > 0 ? (rows.length - n) / rate : 0),
+                rate: Math.round(rate * 60), eta: rate > 0 ? hms((rows.length - n) / rate) : "—",  // no estimate until the first files are done
                 lanes: limit, maxLanes, throttled: throttles };
     job.progress = p;
     live(`[${p.pct.toFixed(1).padStart(5)}%] ${fmt(p.n)}/${fmt(total)}  done=${fmt(p.done)}  err=${fmt(nErr)}  ${fmt(p.rate)}/min  ` +

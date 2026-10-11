@@ -18,6 +18,8 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // One small stylesheet: inline it so the first paint doesn't wait for a CSS request
+  experimental: { inlineCss: true },
   async headers() {
     return [{
       source: "/:path*",
